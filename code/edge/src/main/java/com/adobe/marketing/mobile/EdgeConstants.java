@@ -19,6 +19,13 @@ final class EdgeConstants {
 	static final String FRIENDLY_NAME = "Edge";
 	static final String LOG_TAG = FRIENDLY_NAME;
 
+	static final class EventType {
+
+		static final String EDGE_BYPASS_CONSENT = "com.adobe.eventType.edgeBypassConsent";
+
+		private EventType() {}
+	}
+
 	static final class EventName {
 
 		static final String REQUEST_CONTENT = "AEP Request Event";
@@ -94,6 +101,13 @@ final class EdgeConstants {
 		}
 
 		private EventDataKeys() {}
+	}
+
+	static final class DataQueueLabels {
+
+		static final String BYPASS_CONSENT_SUFFIX = ".bypassConsent";
+
+		private DataQueueLabels() {}
 	}
 
 	static final class DataStoreKeys {

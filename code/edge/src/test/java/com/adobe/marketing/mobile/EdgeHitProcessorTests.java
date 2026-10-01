@@ -712,6 +712,79 @@ public class EdgeHitProcessorTests {
 		verify(mockNamedCollection, times(1)).remove(EdgeConstants.DataStoreKeys.STORE_PAYLOADS);
 	}
 
+	@Test
+	public void testProcessHit_onBypassConsentEvent_sendsDeviceAttributesRequest() throws Exception {
+		Map<String, Object> eventData = new HashMap<>();
+		eventData.put(
+			"app",
+			new HashMap<String, Object>() {
+				{
+					put("id", "com.example.app");
+				}
+			}
+		);
+		eventData.put(
+			"tokens",
+			new HashMap<String, Object>() {
+				{
+					put("pushNotification", "test-token");
+				}
+			}
+		);
+		Event event = new Event.Builder(
+			"Device Attributes",
+			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+			EventSource.REQUEST_CONTENT
+		)
+			.setEventData(eventData)
+			.build();
+		DataEntity dataEntity = new EdgeDataEntity(event, edgeConfig, identityMap).toDataEntity();
+		assertNotNull(dataEntity);
+
+		when(mockEdgeNetworkService.buildUrl(any(EdgeEndpoint.class), anyString(), anyString()))
+			.thenReturn("https://edge.adobedc.net/ee/v1/mobile/device-attributes?configId=works");
+		when(
+			mockEdgeNetworkService.doRequest(
+				anyString(),
+				anyString(),
+				ArgumentMatchers.anyMap(),
+				eq(false),
+				any(EdgeNetworkService.ResponseCallback.class)
+			)
+		)
+			.thenReturn(new RetryResult(EdgeNetworkService.Retry.NO));
+		final boolean[] processingCompleted = new boolean[1];
+
+		hitProcessor.processHit(dataEntity, result -> processingCompleted[0] = result);
+
+		assertTrue(processingCompleted[0]);
+		ArgumentCaptor<EdgeEndpoint> endpointCaptor = ArgumentCaptor.forClass(EdgeEndpoint.class);
+		verify(mockEdgeNetworkService).buildUrl(endpointCaptor.capture(), eq("works"), anyString());
+		assertEquals(
+			"https://edge.adobedc.net/ee/v1/mobile/device-attributes",
+			endpointCaptor.getValue().getEndpoint()
+		);
+
+		ArgumentCaptor<String> requestBodyCaptor = ArgumentCaptor.forClass(String.class);
+		verify(mockEdgeNetworkService)
+			.doRequest(
+				anyString(),
+				requestBodyCaptor.capture(),
+				ArgumentMatchers.anyMap(),
+				eq(false),
+				any(EdgeNetworkService.ResponseCallback.class)
+			);
+		JSONObject requestBody = new JSONObject(requestBodyCaptor.getValue());
+		assertEquals("com.example.app", requestBody.getJSONObject("app").getString("id"));
+		assertEquals("test-token", requestBody.getJSONObject("tokens").getString("pushNotification"));
+		assertTrue(requestBody.getJSONObject(EdgeJson.Event.XDM).has(EdgeJson.Event.Xdm.IDENTITY_MAP));
+		ArgumentCaptor<String> requestIdCaptor = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Event> eventCaptor = ArgumentCaptor.forClass(Event.class);
+		verify(mockNetworkResponseHandler).addWaitingEvent(requestIdCaptor.capture(), eventCaptor.capture());
+		assertNotNull(requestIdCaptor.getValue());
+		assertEquals(event.getUniqueIdentifier(), eventCaptor.getValue().getUniqueIdentifier());
+	}
+
 	// Test void processHit(@NonNull final DataEntity dataEntity, @NonNull final HitProcessingResult processingResult)
 	@Test
 	public void testProcessHit_badHit_decodeFails() {

@@ -19,6 +19,7 @@ import com.adobe.marketing.mobile.services.DataQueue;
 import com.adobe.marketing.mobile.services.HitQueuing;
 import com.adobe.marketing.mobile.services.Log;
 import com.adobe.marketing.mobile.services.NamedCollection;
+import com.adobe.marketing.mobile.services.PersistentHitQueue;
 import com.adobe.marketing.mobile.services.ServiceProvider;
 import com.adobe.marketing.mobile.util.DataReader;
 import com.adobe.marketing.mobile.util.DataReaderException;
@@ -42,6 +43,7 @@ class EdgeExtension extends Extension {
 	private NetworkResponseHandler networkResponseHandler;
 	private NamedCollection dataStore;
 	private final HitQueuing hitQueue;
+	private final HitQueuing bypassConsentHitQueue;
 
 	/*
 	 * An {@code EdgeSharedStateCallback} to create and retrieve shared states.
@@ -70,7 +72,7 @@ class EdgeExtension extends Extension {
 	 * @param extensionApi the {@link ExtensionApi} instance for this extension
 	 */
 	protected EdgeExtension(final ExtensionApi extensionApi) {
-		this(extensionApi, null);
+		this(extensionApi, null, null);
 	}
 
 	/**
@@ -86,6 +88,18 @@ class EdgeExtension extends Extension {
 	 *                 If null, a new {@code HitQueuing} instance is created.
 	 */
 	protected EdgeExtension(final ExtensionApi extensionApi, final HitQueuing hitQueue) {
+		this(extensionApi, hitQueue, null);
+	}
+
+	/**
+	 * Constructor intended for tests which need to inject both queues independently.
+	 *
+	 * @param extensionApi the {@link ExtensionApi} instance for this extension
+	 * @param hitQueue the regular collect-consent governed queue
+	 * @param bypassConsentHitQueue the consent-independent device-attributes queue
+	 */
+	@VisibleForTesting
+	EdgeExtension(final ExtensionApi extensionApi, final HitQueuing hitQueue, final HitQueuing bypassConsentHitQueue) {
 		super(extensionApi);
 		if (hitQueue == null) {
 			final EdgeHitProcessor hitProcessor = new EdgeHitProcessor(
@@ -98,11 +112,32 @@ class EdgeExtension extends Extension {
 
 			final DataQueue dataQueue = ServiceProvider.getInstance().getDataQueueService().getDataQueue(getName());
 			this.hitQueue = new EdgeBatchingHitQueue(dataQueue, hitProcessor);
+			final DataQueue bypassConsentDataQueue = ServiceProvider
+				.getInstance()
+				.getDataQueueService()
+				.getDataQueue(getName() + EdgeConstants.DataQueueLabels.BYPASS_CONSENT_SUFFIX);
+			if (bypassConsentDataQueue == null) {
+				Log.error(
+					LOG_TAG,
+					LOG_SOURCE,
+					"Failed to create the bypass-consent DataQueue. Device attribute requests cannot be processed."
+				);
+				this.bypassConsentHitQueue = null;
+			} else {
+				this.bypassConsentHitQueue = new PersistentHitQueue(bypassConsentDataQueue, hitProcessor);
+			}
 		} else {
 			this.hitQueue = hitQueue;
+			this.bypassConsentHitQueue = bypassConsentHitQueue;
 		}
 
-		state = new EdgeState(this.hitQueue, new EdgeProperties(getNamedCollection()), sharedStateCallback);
+		state =
+			new EdgeState(
+				this.hitQueue,
+				this.bypassConsentHitQueue,
+				new EdgeProperties(getNamedCollection()),
+				sharedStateCallback
+			);
 	}
 
 	@NonNull @Override
@@ -126,6 +161,7 @@ class EdgeExtension extends Extension {
 	 * The following listeners are registered during this extension's registration:
 	 * <ul>
 	 *     <li> EventType {@link EventType#EDGE} and EventSource {@link EventSource#REQUEST_CONTENT}</li>
+	 *     <li> EventType {@code com.adobe.eventType.edgeBypassConsent} and EventSource {@link EventSource#REQUEST_CONTENT}</li>
 	 *     <li> EventType {@link EventType#CONSENT} and EventSource {@link EventSource#RESPONSE_CONTENT}</li>
 	 *     <li> EventType {@link EventType#EDGE} and EventSource {@link EventSource#UPDATE_CONSENT}</li>
 	 *     <li> EventType {@link EventType#EDGE_IDENTITY} and EventSource {@link EventSource#RESET_COMPLETE}</li>
@@ -140,6 +176,12 @@ class EdgeExtension extends Extension {
 
 		// register a listener for Edge request events
 		getApi().registerEventListener(EventType.EDGE, EventSource.REQUEST_CONTENT, this::handleExperienceEventRequest);
+		getApi()
+			.registerEventListener(
+				EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+				EventSource.REQUEST_CONTENT,
+				this::handleBypassConsentRequest
+			);
 
 		// register listener for consent preferences updates to update the queue state
 		getApi()
@@ -166,6 +208,9 @@ class EdgeExtension extends Extension {
 	protected void onUnregistered() {
 		super.onUnregistered();
 		hitQueue.close();
+		if (bypassConsentHitQueue != null) {
+			bypassConsentHitQueue.close();
+		}
 	}
 
 	@Override
@@ -174,7 +219,11 @@ class EdgeExtension extends Extension {
 			return false;
 		}
 
-		if (EventUtils.isExperienceEvent(event) || EventUtils.isUpdateConsentEvent(event)) {
+		if (
+			EventUtils.isExperienceEvent(event) ||
+			EventUtils.isUpdateConsentEvent(event) ||
+			EventUtils.isBypassConsentEvent(event)
+		) {
 			return getConfigurationState(event) != null && getIdentityXDMState(event) != null;
 		} else if (EventUtils.isResetComplete(event)) {
 			// use barrier to wait for EdgeIdentity to handle the reset
@@ -206,6 +255,25 @@ class EdgeExtension extends Extension {
 			return;
 		}
 		processAndQueueEvent(event);
+	}
+
+	/**
+	 * Handles the dedicated consent-independent device-attributes request.
+	 *
+	 * @param event event carrying operational data such as app metadata and device tokens
+	 */
+	void handleBypassConsentRequest(@NonNull final Event event) {
+		if (MapUtils.isNullOrEmpty(event.getEventData())) {
+			Log.trace(
+				LOG_TAG,
+				LOG_SOURCE,
+				"Device attribute request with id %s contained no data, ignoring.",
+				event.getUniqueIdentifier()
+			);
+			return;
+		}
+
+		processAndQueueEvent(event, true);
 	}
 
 	/**
@@ -323,9 +391,13 @@ class EdgeExtension extends Extension {
 	}
 
 	/**
-	 * Processes an Experience Event or Consent Update Event and adds it to the hit queue.
+	 * Processes an Edge request event and adds it to the appropriate hit queue.
 	 */
 	void processAndQueueEvent(@NonNull final Event event) {
+		processAndQueueEvent(event, false);
+	}
+
+	private void processAndQueueEvent(@NonNull final Event event, final boolean bypassConsent) {
 		Map<String, Object> configReady = getConfigurationState(event);
 
 		if (configReady == null) {
@@ -367,18 +439,19 @@ class EdgeExtension extends Extension {
 			return; // Shouldn't get here as Identity state is checked in readyForEvent
 		}
 
-		if (hitQueue == null) {
+		final HitQueuing targetQueue = bypassConsent ? bypassConsentHitQueue : hitQueue;
+		if (targetQueue == null) {
 			Log.warning(
 				LOG_TAG,
 				LOG_SOURCE,
-				"Hit queue is null, unable to queue Edge event with id (%s).",
+				"Hit queue is unavailable, unable to queue Edge event with id (%s).",
 				event.getUniqueIdentifier()
 			);
 			return;
 		}
 
 		EdgeDataEntity entity = new EdgeDataEntity(event, edgeConfig, identityReady);
-		hitQueue.queue(entity.toDataEntity());
+		targetQueue.queue(entity.toDataEntity());
 	}
 
 	/**

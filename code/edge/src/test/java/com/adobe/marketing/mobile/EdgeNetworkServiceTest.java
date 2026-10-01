@@ -296,6 +296,25 @@ public class EdgeNetworkServiceTest {
 	}
 
 	@Test
+	public void testDoRequest_whenConnection_ResponseCode202_ReturnsRetryNo_AndCallsResponseCallback() {
+		final String jsonRequest = "{}";
+		final String responseStr = "{\"handle\":[]}";
+		MockConnection mockConnection = new MockConnection(202, responseStr, null);
+		mockNetworkService.setDefaultResponse(mockConnection);
+		networkService = new EdgeNetworkService(mockNetworkService);
+
+		DoRequestResult result = doRequestSync(TEST_URL, jsonRequest);
+
+		assertEquals(EdgeNetworkService.Retry.NO, result.retryResult.getShouldRetry());
+		assertEquals("called", result.onResponseCallback[0]);
+		assertEquals(responseStr, result.onResponseCallback[1]);
+		assertNull(result.onErrorCallback[0]);
+		assertNotNull(result.onCompleteCallback[0]);
+		assertEquals(1, mockConnection.getInputStreamCalledTimes);
+		assertEquals(1, mockConnection.closeCalledTimes);
+	}
+
+	@Test
 	public void testDoRequest_whenConnection_ResponseCode204_ReturnsRetryNo_AndNoResponseCallback_AndNoErrorCallback() {
 		// setup
 		final String jsonRequest = "{}";

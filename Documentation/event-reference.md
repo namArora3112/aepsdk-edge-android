@@ -3,6 +3,7 @@
 ## Table of Contents<!-- omit in toc -->
 - [Events handled by Edge](#events-handled-by-edge)
   - [Edge request content](#edge-request-content)
+  - [Edge bypass-consent request content](#edge-bypass-consent-request-content)
   - [Edge request identity](#edge-request-identity)
   - [Edge update consent](#edge-update-consent)
   - [Edge update identity](#edge-update-identity)
@@ -61,6 +62,22 @@ request
 
 > **Note**
 > Events of this type and source are only processed if the data collection consent status stored in the `collect` property is **not** `n` (no); that is, either `y` (yes) or `p` (pending).
+
+-----
+
+### Edge bypass-consent request content
+
+This internal request carries device/profile operational data produced by an Edge Identity operational-data rule. Edge sends it to the dedicated `mobile/device-attributes` endpoint using a separate persistent queue that is not suspended or cleared by collect-consent changes. It is not an Experience Event and is not processed by the regular `interact` path.
+
+#### Event details<!-- omit in toc -->
+
+| Event type | Event source |
+| ---------- | ------------ |
+| com.adobe.eventType.edgeBypassConsent | com.adobe.eventSource.requestContent |
+
+#### Event data payload definition<!-- omit in toc -->
+
+The operational-data fields (for example, `app`, `tokens`, and `timezone`) are passed through to the request body. Edge adds the current identity map and SDK implementation details under `xdm`, and includes persisted `state:store` values under `meta.state` when available. Configuration and Identity shared states must be available before Edge processes the event.
 
 -----
 

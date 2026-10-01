@@ -490,6 +490,8 @@ class EdgeHitProcessor implements HitProcessing {
 			hitCompleteResult = processExperienceEventHit(dataEntity.getUniqueIdentifier(), entity);
 		} else if (EventUtils.isUpdateConsentEvent(entity.getEvent())) {
 			hitCompleteResult = processUpdateConsentEventHit(dataEntity.getUniqueIdentifier(), entity);
+		} else if (EventUtils.isBypassConsentEvent(entity.getEvent())) {
+			hitCompleteResult = processBypassConsentEventHit(dataEntity.getUniqueIdentifier(), entity);
 		} else if (EventUtils.isResetComplete(entity.getEvent())) {
 			// clear state store
 			final StoreResponsePayloadManager payloadManager = new StoreResponsePayloadManager(namedCollection);
@@ -660,6 +662,56 @@ class EdgeHitProcessor implements HitProcessing {
 		networkResponseHandler.addWaitingEvent(edgeHit.getRequestId(), entity.getEvent());
 		final Map<String, String> requestHeaders = getRequestHeaders();
 		return sendNetworkRequest(entityId, edgeHit, requestHeaders);
+	}
+
+	/**
+	 * Processes device-attributes operational data through the dedicated consent-independent endpoint.
+	 *
+	 * @param entityId the {@link DataEntity} unique identifier
+	 * @param entity the queued event and its configuration/identity snapshots
+	 * @return true if request processing is complete; false if it should be retried
+	 */
+	private boolean processBypassConsentEventHit(@NonNull final String entityId, @NonNull final EdgeDataEntity entity) {
+		final RequestBuilder request = new RequestBuilder(namedCollection);
+		request.addXdmPayload(entity.getIdentityMap());
+
+		Map<String, Object> edgeConfig = entity.getConfiguration();
+		String datastreamId = DataReader.optString(
+			edgeConfig,
+			EdgeConstants.SharedState.Configuration.EDGE_CONFIG_ID,
+			null
+		);
+		if (StringUtils.isNullOrEmpty(datastreamId)) {
+			Log.warning(
+				LOG_TAG,
+				LOG_SOURCE,
+				"Cannot process device attribute request because the Edge Network configuration ID is null or empty."
+			);
+			return true;
+		}
+
+		JSONObject payload = request.getPayloadWithDeviceAttributes(
+			entity.getEvent(),
+			stateCallback != null ? stateCallback.getImplementationDetails() : null
+		);
+		if (payload == null || payload.length() == 0) {
+			Log.debug(
+				LOG_TAG,
+				LOG_SOURCE,
+				"Failed to build the device-attributes payload, dropping event (%s).",
+				entity.getEvent().getUniqueIdentifier()
+			);
+			return true;
+		}
+
+		final EdgeEndpoint edgeEndpoint = getEdgeEndpoint(
+			EdgeNetworkService.RequestType.DEVICE_ATTRIBUTES,
+			edgeConfig,
+			null
+		);
+		final EdgeHit edgeHit = new EdgeHit(datastreamId, payload, edgeEndpoint);
+		networkResponseHandler.addWaitingEvent(edgeHit.getRequestId(), entity.getEvent());
+		return sendNetworkRequest(entityId, edgeHit, getRequestHeaders());
 	}
 
 	/**

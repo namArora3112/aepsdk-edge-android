@@ -48,14 +48,36 @@ public class EdgeStateTests {
 	HitQueuing mockHitQueue;
 
 	@Mock
+	HitQueuing mockBypassConsentHitQueue;
+
+	@Mock
 	EdgeSharedStateCallback mockSharedStateCallback;
 
 	@Before
 	public void setUp() {
 		fakeNamedCollection = new FakeNamedCollection();
 		properties = new EdgeProperties(fakeNamedCollection);
+		mockHitQueue = mock(HitQueuing.class);
+		mockBypassConsentHitQueue = mock(HitQueuing.class);
 		mockSharedStateCallback = mock(EdgeSharedStateCallback.class);
-		state = new EdgeState(mockHitQueue, properties, mockSharedStateCallback);
+		state = new EdgeState(mockHitQueue, mockBypassConsentHitQueue, properties, mockSharedStateCallback);
+	}
+
+	@Test
+	public void testConsentChangesDoNotSuspendOrClearBypassConsentQueue() {
+		clearInvocations(mockHitQueue, mockBypassConsentHitQueue);
+
+		state.updateCurrentConsent(ConsentStatus.NO);
+
+		verify(mockHitQueue).clear();
+		verify(mockHitQueue).beginProcessing();
+		verify(mockBypassConsentHitQueue, never()).clear();
+		verify(mockBypassConsentHitQueue, never()).suspend();
+	}
+
+	@Test
+	public void testConstructor_startsBypassConsentQueue() {
+		verify(mockBypassConsentHitQueue).beginProcessing();
 	}
 
 	@Test

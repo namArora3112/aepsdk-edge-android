@@ -203,6 +203,51 @@ class RequestBuilder {
 		return consents.asJsonObject();
 	}
 
+	/**
+	 * Builds the device-attributes request body from the producer's operational data and adds the
+	 * Edge-owned XDM identity/implementation details and persisted state metadata.
+	 *
+	 * @param event the consent-independent event containing the operational data
+	 * @param implementationDetails SDK implementation details, if available
+	 * @return the request body or null when the event has no data
+	 */
+	JSONObject getPayloadWithDeviceAttributes(final Event event, final Map<String, Object> implementationDetails) {
+		if (event == null || MapUtils.isNullOrEmpty(event.getEventData())) {
+			Log.debug(LOG_TAG, LOG_SOURCE, "Unable to build device-attributes payload, event data is null or empty.");
+			return null;
+		}
+
+		Map<String, Object> payload = new HashMap<>(event.getEventData());
+		Map<String, Object> xdm = new HashMap<>();
+		if (!MapUtils.isNullOrEmpty(implementationDetails)) {
+			xdm.putAll(implementationDetails);
+		}
+
+		Map<String, Object> identityMap = DataReader.optTypedMap(
+			Object.class,
+			xdmPayloads,
+			EdgeConstants.EventDataKeys.IDENTITY_MAP,
+			null
+		);
+		MapUtils.putIfNotEmpty(xdm, EdgeConstants.EventDataKeys.IDENTITY_MAP, identityMap);
+		MapUtils.putIfNotEmpty(payload, EdgeJson.Event.XDM, xdm);
+
+		Map<String, Object> stateMetadata = new StateMetadata(storeResponsePayloadManager.getActiveStores())
+			.toObjectMap();
+		if (!MapUtils.isNullOrEmpty(stateMetadata)) {
+			payload.put(
+				EdgeJson.Event.METADATA,
+				new HashMap<String, Object>() {
+					{
+						put("state", stateMetadata);
+					}
+				}
+			);
+		}
+
+		return new JSONObject(payload);
+	}
+
 	private KonductorConfig buildKonductorConfig() {
 		KonductorConfig konductorConfig = new KonductorConfig();
 

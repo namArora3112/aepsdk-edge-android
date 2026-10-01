@@ -579,6 +579,113 @@ public class RequestBuilderTest {
 	}
 
 	@Test
+	public void getPayloadWithDeviceAttributes_passesThroughOperationalDataAndAddsXdm() throws Exception {
+		Map<String, Object> appData = new HashMap<>();
+		appData.put("id", "com.example.app");
+		Map<String, Object> tokenData = new HashMap<>();
+		tokenData.put("pushNotification", "push-token");
+		Map<String, Object> eventData = new HashMap<>();
+		eventData.put("app", appData);
+		eventData.put("tokens", tokenData);
+		eventData.put("timezone", "America/Los_Angeles");
+		Event event = new Event.Builder(
+			"Device Attributes",
+			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+			EventSource.REQUEST_CONTENT
+		)
+			.setEventData(eventData)
+			.build();
+
+		Map<String, Object> identityMap = new HashMap<>();
+		identityMap.put(
+			"identityMap",
+			new HashMap<String, Object>() {
+				{
+					put(
+						"ECID",
+						new ArrayList<Object>() {
+							{
+								add(
+									new HashMap<String, Object>() {
+										{
+											put("id", "test-ecid");
+										}
+									}
+								);
+							}
+						}
+					);
+				}
+			}
+		);
+		requestBuilder.addXdmPayload(identityMap);
+		Map<String, Object> implementationDetails = new HashMap<>();
+		implementationDetails.put(
+			"implementationDetails",
+			new HashMap<String, Object>() {
+				{
+					put("environment", "app");
+				}
+			}
+		);
+
+		JSONObject payload = requestBuilder.getPayloadWithDeviceAttributes(event, implementationDetails);
+
+		assertExactMatch(
+			"{" +
+			"\"app\":{\"id\":\"com.example.app\"}," +
+			"\"tokens\":{\"pushNotification\":\"push-token\"}," +
+			"\"timezone\":\"America/Los_Angeles\"," +
+			"\"xdm\":{" +
+			"\"implementationDetails\":{\"environment\":\"app\"}," +
+			"\"identityMap\":{\"ECID\":[{\"id\":\"test-ecid\"}]}" +
+			"}" +
+			"}",
+			payload
+		);
+	}
+
+	@Test
+	public void getPayloadWithDeviceAttributes_addsPersistedStateMetadata() throws Exception {
+		setupMockStoreMetadata();
+		Event event = new Event.Builder(
+			"Device Attributes",
+			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+			EventSource.REQUEST_CONTENT
+		)
+			.setEventData(
+				new HashMap<String, Object>() {
+					{
+						put(
+							"app",
+							new HashMap<String, Object>() {
+								{
+									put("id", "com.example.app");
+								}
+							}
+						);
+					}
+				}
+			)
+			.build();
+
+		JSONObject payload = requestBuilder.getPayloadWithDeviceAttributes(event, null);
+
+		assertExactMatch(
+			"{" +
+			"\"app\":{\"id\":\"com.example.app\"}," +
+			"\"meta\":{\"state\":{\"entries\":[" +
+			"{\"key\":\"kndctr_3E2A28175B8ED3720A495E23_AdobeOrg_optout\",\"value\":\"\",\"maxAge\":7200}," +
+			"{\"key\":\"kndctr_3E2A28175B8ED3720A495E23_AdobeOrg_identity\"," +
+			"\"value\":\"Cg8KBnN5bmNlZBIBMRiA9SQKMwoERUNJRBImNjA5MjY2MDcwMDIxMDI0NzMyNDYwNDgzMTg3MjA0MDkxMDQ3NjQYgIGjEBCFwbjv_i0=\"," +
+			"\"maxAge\":34128000}" +
+			"]}}" +
+			"}",
+			payload
+		);
+	}
+
+	@Test
 	public void getPayloadWithExperienceEvents_NoAddStoreMetadata_whenNullPayloadInDataStore() {
 		List<Event> events = getSingleEvent(getExperienceEventData("value"));
 		setupMockStoreMetadataNullDatastoreKey();

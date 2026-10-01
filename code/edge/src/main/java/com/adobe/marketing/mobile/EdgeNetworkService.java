@@ -48,11 +48,13 @@ class EdgeNetworkService {
 	 * <ul>
 	 *     <li>INTERACT - makes request and expects a response</li>
 	 *     <li>CONSENT - makes request to the consent endpoint, expects a response</li>
+	 *     <li>DEVICE_ATTRIBUTES - sends consent-independent operational data</li>
 	 * </ul>
 	 */
 	public enum RequestType {
 		INTERACT("interact"),
-		CONSENT("privacy/set-consent");
+		CONSENT("privacy/set-consent"),
+		DEVICE_ATTRIBUTES("mobile/device-attributes");
 
 		public final String type;
 
@@ -216,6 +218,23 @@ class EdgeNetworkService {
 				LOG_TAG,
 				LOG_SOURCE,
 				"Interact connection to Experience Edge successful. Response message: " +
+				connection.getResponseMessage()
+			);
+
+			KonductorConfig konductorConfig = KonductorConfig.fromJsonRequest(jsonRequest);
+			boolean shouldStreamResponse = konductorConfig != null && konductorConfig.isStreamingEnabled();
+
+			handleContent(
+				connection.getInputStream(),
+				shouldStreamResponse ? konductorConfig.getRecordSeparator() : null,
+				shouldStreamResponse ? konductorConfig.getLineFeed() : null,
+				responseCallback
+			);
+		} else if (connection.getResponseCode() == HttpURLConnection.HTTP_ACCEPTED) {
+			Log.debug(
+				LOG_TAG,
+				LOG_SOURCE,
+				"Connection to Experience Edge successful, request accepted for processing. Response message: " +
 				connection.getResponseMessage()
 			);
 
