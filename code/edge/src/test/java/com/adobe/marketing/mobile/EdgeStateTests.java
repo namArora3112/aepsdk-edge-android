@@ -76,8 +76,26 @@ public class EdgeStateTests {
 	}
 
 	@Test
+	public void testPendingConsentSuspendsRegularQueueWithoutAffectingBypassQueue() {
+		clearInvocations(mockHitQueue, mockBypassConsentHitQueue);
+
+		state.updateCurrentConsent(ConsentStatus.PENDING);
+
+		verify(mockHitQueue).suspend();
+		verify(mockBypassConsentHitQueue, never()).suspend();
+		verify(mockBypassConsentHitQueue, never()).clear();
+	}
+
+	@Test
 	public void testConstructor_startsBypassConsentQueue() {
 		verify(mockBypassConsentHitQueue).beginProcessing();
+	}
+
+	@Test
+	public void testConstructor_withNullBypassConsentQueue_doesNotThrow() {
+		EdgeState noBypassState = new EdgeState(mockHitQueue, null, properties, mockSharedStateCallback);
+		assertNotNull(noBypassState);
+		assertEquals(ConsentStatus.PENDING, noBypassState.getCurrentCollectConsent());
 	}
 
 	@Test

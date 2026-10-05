@@ -219,6 +219,52 @@ public class EdgeExtensionTest {
 	}
 
 	@Test
+	public void testHandleBypassConsentRequest_whenEmptyEventData_ignoresEvent() {
+		mockSharedStates(
+			new SharedStateResult(SharedStateStatus.SET, configData),
+			new SharedStateResult(SharedStateStatus.SET, identityState),
+			null
+		);
+		Event bypassConsentEvent = new Event.Builder(
+			"device attributes",
+			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+			EventSource.REQUEST_CONTENT
+		).build();
+
+		edgeExtension.handleBypassConsentRequest(bypassConsentEvent);
+
+		verify(mockQueue, never()).queue(any(DataEntity.class));
+		verify(mockBypassConsentQueue, never()).queue(any(DataEntity.class));
+	}
+
+	@Test
+	public void testHandleBypassConsentRequest_whenQueueUnavailable_doesNotQueue() {
+		EdgeExtension extensionWithoutBypassQueue = new EdgeExtension(mockExtensionApi, mockQueue, null);
+		mockSharedStates(
+			new SharedStateResult(SharedStateStatus.SET, configData),
+			new SharedStateResult(SharedStateStatus.SET, identityState),
+			null
+		);
+		Event bypassConsentEvent = new Event.Builder(
+			"device attributes",
+			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
+			EventSource.REQUEST_CONTENT
+		)
+			.setEventData(
+				new HashMap<String, Object>() {
+					{
+						put("app", new HashMap<String, Object>());
+					}
+				}
+			)
+			.build();
+
+		extensionWithoutBypassQueue.handleBypassConsentRequest(bypassConsentEvent);
+
+		verify(mockQueue, never()).queue(any(DataEntity.class));
+	}
+
+	@Test
 	public void testHandleExperienceEventRequest_whenCollectConsentPending_queues() {
 		mockSharedStates(
 			new SharedStateResult(SharedStateStatus.SET, configData),
