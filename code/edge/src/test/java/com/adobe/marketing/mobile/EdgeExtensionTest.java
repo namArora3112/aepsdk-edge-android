@@ -229,7 +229,8 @@ public class EdgeExtensionTest {
 			"device attributes",
 			EdgeConstants.EventType.EDGE_BYPASS_CONSENT,
 			EventSource.REQUEST_CONTENT
-		).build();
+		)
+			.build();
 
 		edgeExtension.handleBypassConsentRequest(bypassConsentEvent);
 
