@@ -51,19 +51,20 @@ public class Edge {
 		@NonNull final ExperienceEvent experienceEvent,
 		@Nullable final EdgeCallback callback
 	) {
-		final String telemetryOp = com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationStarted("com.adobe.edge", "sdk.edge.sendEvent");
 		if (experienceEvent == null) {
 			Log.warning(
 				LOG_TAG,
 				LOG_SOURCE,
 				"sendEvent API cannot make the request, the ExperienceEvent should not be null."
 			);
+			recordRejectedSendEvent("null ExperienceEvent");
 			return;
 		}
 
 		// Note: iOS implementation ignores requests if XDM data is empty
 		if (MapUtils.isNullOrEmpty(experienceEvent.getXdmSchema())) {
 			Log.warning(LOG_TAG, LOG_SOURCE, "sendEvent API cannot make the request with null/empty XDM data.");
+			recordRejectedSendEvent("empty XDM");
 			return;
 		}
 
@@ -72,6 +73,7 @@ public class Edge {
 
 		if (MapUtils.isNullOrEmpty(data)) {
 			Log.warning(LOG_TAG, LOG_SOURCE, "sendEvent API cannot make the request with null/empty event data.");
+			recordRejectedSendEvent("empty event data");
 			return;
 		}
 
@@ -86,7 +88,20 @@ public class Edge {
 		// dispatch created event to the event hub & register response callback
 		CompletionCallbacksManager.getInstance().registerCallback(event.getUniqueIdentifier(), callback);
 		MobileCore.dispatchEvent(event);
-		com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationCompleted(telemetryOp, "com.adobe.edge", "sdk.edge.sendEvent", "dispatched", "request dispatched");
+	}
+
+	private static void recordRejectedSendEvent(final String reason) {
+		final String operationId = com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationStarted(
+			"com.adobe.edge",
+			"sdk.edge.sendEvent"
+		);
+		com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationCompleted(
+			operationId,
+			"com.adobe.edge",
+			"sdk.edge.sendEvent",
+			"rejected",
+			reason
+		);
 	}
 
 	/**
