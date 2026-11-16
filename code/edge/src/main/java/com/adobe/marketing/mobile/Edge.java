@@ -51,6 +51,7 @@ public class Edge {
 		@NonNull final ExperienceEvent experienceEvent,
 		@Nullable final EdgeCallback callback
 	) {
+		final String telemetryOp = com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationStarted("com.adobe.edge", "sdk.edge.sendEvent");
 		if (experienceEvent == null) {
 			Log.warning(
 				LOG_TAG,
@@ -85,6 +86,7 @@ public class Edge {
 		// dispatch created event to the event hub & register response callback
 		CompletionCallbacksManager.getInstance().registerCallback(event.getUniqueIdentifier(), callback);
 		MobileCore.dispatchEvent(event);
+		com.adobe.marketing.mobile.telemetrybridge.TelemetryBridge.operationCompleted(telemetryOp, "com.adobe.edge", "sdk.edge.sendEvent", "dispatched", "request dispatched");
 	}
 
 	/**
